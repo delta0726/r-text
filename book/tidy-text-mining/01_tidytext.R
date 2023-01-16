@@ -1,11 +1,21 @@
 # ***********************************************************************************************
 # Title   : Rによるテキストマイニング
 # Chapter : 1 整理テキスト形式
-# Date    : 2022/07/29
+# Date    : 2023/01/17
 # Page    : P1 - P14
 # URL     : https://github.com/dgrtwo/tidy-text-mining
 # ***********************************************************************************************
 
+
+# ＜概要＞
+# - {tidytext}はトークンの処理に整理テキスト形式の概念を持ち込むための仕組みが提供されている
+# - テキストのトークン処理と、トークンの頻度による文書類似度比較を行う
+
+
+# ＜用語整理＞
+# - ｢整理テキスト形式｣とは、1行に1つのトークンからなる表を定義して｢整理データ｣の概念でデータ処理をすること
+# - ｢トークン｣とは、テキストの単位として意味のあるもの（たとえば単語、センテンス、段落）
+# - ｢トークン化｣とは、テキストをトークンに分割する処理
 
 
 # ＜目次＞
@@ -49,10 +59,14 @@ text_df <- tibble(line = 1:4, text = text)
 # --- テキスト列以外はそのまま残される
 # --- デフォルトではトークンを小文字に変換する
 text_df %>%
-  unnest_tokens(word, text)
+  unnest_tokens(output = word, input = text, token = "words", to_lower = TRUE)
 
 
 # 2 ジェーン・オースティンの作品をtidyデータに変換 ---------------------------------
+
+# ＜ポイント＞
+# - {janeaustenr}に含まれる小説のテキストデータを整理形式に変換する
+
 
 # データ確認
 # --- Text：文章
@@ -62,9 +76,7 @@ austen_books() %>% slice(100:200)
 
 # データ集計
 # --- 6編に分かれている
-austen_books() %>%
-  group_by(book) %>%
-  tally()
+austen_books() %>% group_by(book) %>% tally()
 
 # データ変換
 # --- 行ナンバーを追加（編ごと）
@@ -79,18 +91,20 @@ original_books <-
     ungroup()
 
 # データ確認
-original_books
+original_books %>% print()
 
 # データ集計
 # --- Chapterごとのセンテンス数
+# --- Chapterは62個に分かれている
 original_books %>%
   group_by(chapter) %>%
   tally()
 
 # トークンに変換
+# --- {tokenizers}を使ってデータフレームをトークンに分割している（デフォルトは単語）
 tidy_books <-
   original_books %>%
-    unnest_tokens(word, text)
+    unnest_tokens(output = word, input = text, token = "words", to_lower = TRUE)
 
 # データ確認
 tidy_books %>% print()
@@ -99,35 +113,33 @@ tidy_books %>% print()
 # 3 ストップワードの削除 --------------------------------------------------
 
 # ＜ポイント＞
-# - ストップワードとは｢or｣や｢to｣など単独では意味をなさない単語のことをいう
+# - ストップワードとは｢the｣｢or｣｢to｣など単独では意味をなさない単語のことをいう
 #   --- テキスト分析では多くの場合、ストップワードは削除する
 
 
 # 上位単語を確認
 # --- ストップワードが上位に並んでいる
-tidy_books %>%
-  count(word, sort = TRUE)
+tidy_books %>% count(word, sort = TRUE)
 
 # ストップワード一覧の取得
+# --- {tidytext}で管理されている
 data(stop_words)
 
 # 確認
 stop_words %>% print()
 
 # ストップワードの削除
-tidy_books <-
+tidy_books_ex_stopword <-
   tidy_books %>%
     anti_join(stop_words, by = "word")
 
 # 上位単語を確認
 # --- ストップワードが削除された
-tidy_book <-
-  tidy_books %>%
-    count(word, sort = TRUE)
+tidy_books_ex_stopword %>% count(word, sort = TRUE)
 
 # プロット作成
 # --- 上位単語のカウント（出現が600回以上）
-tidy_books %>%
+tidy_books_ex_stopword %>%
   count(word, sort = TRUE) %>%
   filter(n > 600) %>%
   mutate(word = reorder(word, n)) %>%
@@ -138,10 +150,15 @@ tidy_books %>%
 
 # 4 単語の出現頻度 -------------------------------------------------------------------
 
-# ＜＞
+# ＜ポイント＞
+# - テキストマイニングでは｢単語の頻度の確認｣や｢文書ごとの単語出現頻度の比較｣を行う
+#   --- 以下では上位単語の頻度で文書の類似度を測定する
 
 
 # データロード
+# --- H.G.ウェルズの作品
+# --- ブロンテ姉妹の作品
+# --- ストップワード辞書
 load("data/hgwells.rda")
 load("data/bronte.rda")
 data(stop_words)
@@ -152,29 +169,38 @@ bronte %>% print()
 
 # tidyデータの作成
 # --- トークン化とストップワード削除
+tidy_austen <-
+  original_books %>%
+    unnest_tokens(output = word, input = text) %>%
+    anti_join(stop_words, by = "word") %>%
+    mutate(author = "Jane_Austen") %>%
+    select(word, author)
+
 tidy_hgwells <-
   hgwells %>%
-    unnest_tokens(word, text) %>%
-    anti_join(stop_words, by = "word")
+    unnest_tokens(output = word, input = text) %>%
+    anti_join(stop_words, by = "word") %>%
+    mutate(author = "H_G_Wells") %>%
+    select(word, author)
 
 tidy_bronte <-
   bronte %>%
     unnest_tokens(word, text) %>%
-    anti_join(stop_words, by = "word")
+    anti_join(stop_words, by = "word") %>%
+    mutate(author = "Bront_Sisters") %>%
+    select(word, author)
 
 # 単語カウント
 # --- 上位にいずれも｢time｣｢eyes｣｢hand｣を含んでいる
+tidy_austen %>% count(word, sort = TRUE) %>% print()
 tidy_hgwells %>% count(word, sort = TRUE) %>% print()
 tidy_bronte %>% count(word, sort = TRUE) %>% print()
 
-
-
-
+# 頻度計算
 frequency <-
-  tidy_bronte %>%
-    mutate(author = "Bront_Sisters") %>%
-    bind_rows(mutate(tidy_hgwells, author = "H_G_Wells"),
-              mutate(tidy_book, author = "Jane_Austen")) %>%
+  tidy_austen %>%
+    bind_rows(tidy_hgwells) %>%
+    bind_rows(tidy_bronte) %>%
     mutate(word = str_extract(word, "[a-z']+")) %>%
     count(author, word) %>%
     group_by(author) %>%
@@ -183,9 +209,7 @@ frequency <-
     spread(author, proportion) %>%
     gather(author, proportion, Bront_Sisters:H_G_Wells)
 
-
-
-# expect a warning about rows with missing values being removed
+# プロット作成
 frequency %>%
   ggplot(aes(x = proportion, y = Jane_Austen,
               color = abs(Jane_Austen - proportion))) +
