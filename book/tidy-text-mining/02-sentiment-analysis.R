@@ -1,13 +1,14 @@
 # ***********************************************************************************************
 # Title   : Rによるテキストマイニング
 # Chapter : 2 整理データを使ったセンチメント分析
-# Date    : 2022/08/01
+# Date    : 2023/01/18
 # Page    : P15 - P33
 # URL     : https://github.com/dgrtwo/tidy-text-mining
 # ***********************************************************************************************
 
 
 # ＜概要＞
+# - テキストによる｢意見マイニング｣｢センチメント分析｣を考える
 # - テキストを個別の単語の組み合わせと考えて、テキスト全体の感情内容は個別の単語の感情内容の総和と考える
 #   --- 整理データに｢センチメント辞書｣を導入して分析する
 
@@ -16,11 +17,12 @@
 # 0 準備
 # 1 センチメント辞書
 # 2 内部結合を使ったセンチメント分析
-# 3 センチメント辞書の比較
-# 4 センチメント辞書のPos/Neg比率
-# 5 Pos/Negワードのイメージ
-# 6 ストップワードの除去とワードクラウド
-# 7 単語を超えた単位での評価
+# 3 パイプラインを使ったセンチメント分析
+# 4 センチメント辞書の比較
+# 5 センチメント辞書のPos/Neg比率
+# 6 Pos/Negワードのイメージ
+# 7 ストップワードの除去とワードクラウド
+# 8 単語を超えた単位での評価
 
 
 # 0 準備 ----------------------------------------------------------------------------
@@ -48,27 +50,28 @@ library(wordcloud)
 
 
 # センチメント辞書
+# --- {tidytext}にはsentimentsオブジェクトが含まれる
 # --- get_sentiments("bing")と同じ
 sentiments %>% print()
 sentiments %>% group_by(sentiment) %>% tally()
 
-# センチメント辞書の取得
-# --- AFINN
+# センチメント辞書の取得（AFINN）
+# --- 極性値が振られている（-5 to +5 / 離散値）
 afinn <- get_sentiments("afinn")
 afinn %>% group_by(value) %>% tally()
 
-# センチメント辞書の取得
-# --- AFINN
+# センチメント辞書の取得（bing）
+# --- 極性値が振られている（netative or positive / カテゴリ）
 bing <- get_sentiments("bing")
 bing %>% group_by(sentiment) %>% tally()
 
-# センチメント辞書の取得
-# --- AFINN
+# センチメント辞書の取得（nrc）
+# --- 極性値が振られている（10個の感情表現 / カテゴリ）
 nrc <- get_sentiments("nrc")
 nrc %>% group_by(sentiment) %>% tally()
 
-# センチメント辞書の取得
-# --- Loughran
+# センチメント辞書の取得（loughran）
+# --- 極性値が振られている（6個の感情表現 / カテゴリ）
 loughran <- get_sentiments("loughran")
 loughran %>% group_by(sentiment) %>% tally()
 
@@ -106,25 +109,32 @@ tidy_books %>%
   count(word, sort = TRUE)
 
 
+# 3 パイプラインを使ったセンチメント分析 ------------------------------------------
+
+# ＜ポイント＞
+# - センチメント辞書との付け合わせはパイプラインの中で行うとスマート
+
+
 # センチメントの算出
 # --- bing辞書を使用
 # --- sentiment = positive - negative
 jane_austen_sentiment <-
   tidy_books %>%
-      inner_join(get_sentiments("bing"), by = "word") %>%
-      count(book, index = linenumber %/% 80, sentiment) %>%
-      spread(sentiment, n, fill = 0) %>%
-      mutate(sentiment = positive - negative)
+    inner_join(get_sentiments("bing"), by = "word") %>%
+    count(book, index = linenumber %/% 80, sentiment) %>%
+    pivot_wider(names_from = sentiment, values_from = n) %>%
+    mutate(sentiment = positive - negative)
 
 # プロット作成
 # --- ジェーン・オースティンの小説の感情の流れ
+# --- indexで文章な流れを表現
 jane_austen_sentiment %>%
     ggplot(aes(x = index, y = sentiment, fill = book)) +
       geom_col(show.legend = FALSE) +
       facet_wrap(~book, ncol = 2, scales = "free_x")
 
 
-# 3 センチメント辞書の比較 -------------------------------------------------------
+# 4 センチメント辞書の比較 -------------------------------------------------------
 
 # ＜ポイント＞
 # - どのセンチメント辞書が目的に適しているかを判断する必要がある
@@ -178,7 +188,7 @@ afinn %>%
   facet_wrap(~method, ncol = 1, scales = "free_y")
 
 
-# 4 センチメント辞書のPos/Neg比率 ----------------------------------------------
+# 5 センチメント辞書のPos/Neg比率 ----------------------------------------------
 
 # ＜ポイント＞
 # - 辞書によってポジティブ/ネガティブの割合が異なる
@@ -199,7 +209,7 @@ get_sentiments("bing") %>%
   mutate(pct = n / sum(n) * 100)
 
 
-# 5 Pos/Negワードのイメージ -----------------------------------------------
+# 6 Pos/Negワードのイメージ -----------------------------------------------
 
 # ＜ポイント＞
 # - ポジティブとネガティブの上位ワードを目視で確認するのは間違いを避けるのに有効
@@ -214,7 +224,7 @@ bing_word_counts <-
     ungroup()
 
 # 確認
-bing_word_counts
+bing_word_counts %>% print()
 
 # プロット
 # --- センチメントごとの上位ワード
@@ -232,7 +242,12 @@ bing_word_counts %>%
        y = NULL)
 
 
-# 6 ストップワードの除去とワードクラウド ----------------------------------------------
+# 7 ストップワードの除去とワードクラウド ----------------------------------------------
+
+# ＜ポイント＞
+# - ワードクラウドは極性値に応じて単語のサイズを変更して作成される
+#   --- 極性値は｢頻度｣や｢センチメント｣などを適用することが可能
+
 
 # ストップワードの拡張
 addtional_stop_words <- tibble(word = "miss", lexicon = "custom")
@@ -249,22 +264,25 @@ tidy_books %>%
   with(wordcloud(word, n, max.words = 100))
 
 # ワードクラウドの作成
-# --- カスタムのストップワードで除去後
+# --- カスタムのストップワードで除去後（"miss"が無くなった）
 tidy_books %>%
   anti_join(custom_stop_words) %>%
   count(word) %>%
   with(wordcloud(word, n, max.words = 100))
 
-
+# ワードクラウドの比較
 tidy_books %>%
   inner_join(get_sentiments("bing")) %>%
   count(word, sentiment, sort = TRUE) %>%
-  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  pivot_wider(word, names_from = sentiment, values_from = n, values_fill = 0) %>%
+  arrange(word) %>%
+  as.data.frame() %>%
+  column_to_rownames("word") %>%
   comparison.cloud(colors = c("gray20", "gray80"),
                    max.words = 100)
 
 
-# 7 単語を超えた単位での評価 --------------------------------------------------
+# 8 単語を超えた単位での評価 --------------------------------------------------
 
 
 # センテンスデータの取得
